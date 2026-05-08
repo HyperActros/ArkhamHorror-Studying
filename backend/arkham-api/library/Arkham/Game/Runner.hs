@@ -523,15 +523,17 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
       & (phaseL .~ InvestigationPhase)
       & (cardsL %~ if keepCardCache then id else filterMap (not . isEncounterCard))
   PerformTarotReading -> do
-    lead <- getLeadPlayer
-    push
-      $ questionLabel "Choose Tarot Reading Type" lead
-      $ ChooseOne
-        [ Label "Chaos" [PerformReading Tarot.Chaos]
-        , Label "Balance" [PerformReading Tarot.Balance]
-        , Label "Choice" [PerformReading Tarot.Choice]
-        ]
+    when (gamePerformTarotReadings g) do
+      lead <- getLeadPlayer
+      push
+        $ questionLabel "Choose Tarot Reading Type" lead
+        $ ChooseOne
+          [ Label "Chaos" [PerformReading Tarot.Chaos]
+          , Label "Balance" [PerformReading Tarot.Balance]
+          , Label "Choice" [PerformReading Tarot.Choice]
+          ]
     pure g
+  SetPerformTarotReadings b -> pure $ g & performTarotReadingsL .~ b
   RestartScenario -> pure $ g & (phaseL .~ InvestigationPhase)
   SetPhase phase -> pure $ g & phaseL .~ phase
   BeginGame -> do
@@ -922,9 +924,13 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
         else pure id
     pure $ g & entitiesL . assetsL %~ deleteMap aid & removedEntitiesF
   RemoveEvent eid -> do
-    popMessageMatching_ $ \case
-      Discard _ _ (EventTarget eid') -> eid == eid'
-      _ -> False
+    let isMyDiscard = \case
+          Discard _ _ (EventTarget eid') -> eid == eid'
+          _ -> False
+    popMessageMatching_ isMyDiscard
+    withQueue_ $ map $ \case
+      Would bId msgs -> Would bId (filter (not . isMyDiscard) msgs)
+      other -> other
     event' <- getEvent eid
     pure
       $ g
@@ -1299,7 +1305,7 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
       if assetIsStory $ toAttrs asset
         then do
           unless (cdDoubleSided (toCardDef asset)) do
-            push $ toDiscard GameSource $ toTarget assetId
+            push $ addToHand iid card
         else pushAll [RemoveFromPlay (toSource assetId), addToHand iid card]
       for_ underneath (push . addToDiscard iid)
     pure g
@@ -1474,16 +1480,20 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
               <$> runMessage
                 (SetOriginalCardCode $ pcOriginalCardCode pc)
                 (createAsset card aid)
-          whenPlayAsset <- checkWindows [mkWindow #when $ Window.PlayAsset iid aid]
-          afterPlayAsset <- checkWindows [mkWindow #after $ Window.PlayAsset iid aid]
+          let isPermanent = cdPermanent $ toCardDef pc
+          playWindowMsgs <-
+            if isPermanent
+              then pure []
+              else do
+                whenPlayAsset <- checkWindows [mkWindow #when $ Window.PlayAsset iid aid]
+                afterPlayAsset <- checkWindows [mkWindow #after $ Window.PlayAsset iid aid]
+                pure [(whenPlayAsset, afterPlayAsset)]
           pushAll
-            [ PaidForCardCost iid card payment
-            , CardIsEnteringPlay iid card
-            , whenPlayAsset
-            , InvestigatorPlayAsset iid aid
-            , afterPlayAsset
-            , ResolvedCard iid card
-            ]
+            $ [PaidForCardCost iid card payment, CardIsEnteringPlay iid card]
+            <> [w | (w, _) <- playWindowMsgs]
+            <> [InvestigatorPlayAsset iid aid]
+            <> [w | (_, w) <- playWindowMsgs]
+            <> [ResolvedCard iid card]
           pure $ g & entitiesL . assetsL %~ insertMap aid asset
         EventType -> do
           investigator' <- getInvestigator iid
@@ -1798,7 +1808,11 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
               eid <- hoistMaybe target.enemy
               kws <- lift $ toList <$> getModifiedKeywords eid
               liftGuardM $ flip anyM kws \case
+<<<<<<< HEAD
                 Keyword.Patrol lm -> matches eid (#ready <> #unengaged <> not_ (EnemyAt lm))
+=======
+                Keyword.Patrol lm -> matches eid (#ready <> #unengaged <> not_ (EnemyAt $ replaceThatEnemy eid lm))
+>>>>>>> upstream/main
                 Keyword.Hunter -> do
                   attrs <- getAttrs @Enemy eid
                   getPreyMatcher attrs >>= \case

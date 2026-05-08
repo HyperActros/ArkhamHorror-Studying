@@ -3,11 +3,9 @@ module Arkham.Asset.Assets.AnyuFaithfulCompanion (anyuFaithfulCompanion) where
 import Arkham.Ability
 import Arkham.Asset.Cards qualified as Cards
 import Arkham.Asset.Import.Lifted
-import Arkham.Effect.Window
-import Arkham.ForMovement
 import Arkham.Helpers.CombatTarget
-import Arkham.Helpers.Modifiers (ModifierType (..), effectModifiers)
-import Arkham.Matcher
+import Arkham.Helpers.Location (getAccessibleLocations)
+import Arkham.Helpers.Modifiers (ModifierType (..))
 import Arkham.Message.Lifted.Choose
 import Arkham.Message.Lifted.Move
 
@@ -23,18 +21,12 @@ instance HasAbilities AnyuFaithfulCompanion where
 
 anyuChoices :: ReverseQueue m => AssetAttrs -> InvestigatorId -> ChooseT m ()
 anyuChoices attrs iid = do
-  locations <- select $ AccessibleFrom ForMovement (locationWithInvestigator iid)
+  locations <- getAccessibleLocations iid (attrs.ability 1)
   unless (null locations) do
     labeled "Move to a connecting location" do
       chooseTargetM iid locations $ moveTo (attrs.ability 1) iid
   labeled "You get +2 skill value for your next skill test this round" do
-    ems <- effectModifiers (attrs.ability 1) [AnySkillValue 2]
-    push
-      $ CreateWindowModifierEffect
-        (FirstEffectWindow [EffectNextSkillTestWindow iid, EffectRoundWindow])
-        ems
-        (attrs.ability 1)
-        (toTarget iid)
+    nextSkillTestModifier iid (attrs.ability 1) iid (AnySkillValue 2)
   canEvade <- hasEvadeTargets (attrs.ability 1) iid
   when canEvade do
     labeled "_Evade_. Attempt to evade with a base {agility} skill of 4" do

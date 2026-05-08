@@ -744,6 +744,11 @@ payCost msg c iid skipAdditionalCosts cost = do
           | iid' <- investigators
           ]
       withPayment $ InvestigatorDamagePayment x
+    EachInvestigatorDamageCost source' investigatorMatcher damageStrategy x -> do
+      investigators <- select investigatorMatcher
+      for_ investigators $ \iid' ->
+        push $ InvestigatorAssignDamage iid' source' damageStrategy x 0
+      withPayment $ InvestigatorDamagePayment (x * length investigators)
     FieldResourceCost (FieldCost mtchr fld) -> do
       ns <- nub <$> selectFields fld mtchr
       case ns of
@@ -805,13 +810,16 @@ payCost msg c iid skipAdditionalCosts cost = do
       x <- min n <$> getRemainingCurseTokens
       if x < n
         then do
-          -- we need to parallel rex
+          -- we need to parallel rex; his reaction only triggers when 2+ curse tokens would be added
           canParallelRex <-
-            iid
-              <=~> ( InvestigatorIs "90078"
-                       <> InvestigatorAt Anywhere
-                       <> InvestigatorWithAnyClues
-                   )
+            if n < 2
+              then pure False
+              else
+                iid
+                  <=~> ( InvestigatorIs "90078"
+                           <> InvestigatorAt Anywhere
+                           <> InvestigatorWithAnyClues
+                       )
           if canParallelRex
             then do
               batchId <- getRandom
@@ -844,7 +852,9 @@ payCost msg c iid skipAdditionalCosts cost = do
         iid <=~> (InvestigatorIs "90078" <> InvestigatorAt Anywhere <> InvestigatorWithAnyClues)
       rex <- if canParallelRex then fieldMap InvestigatorClues (* 2) iid else pure 0
 
-      maxTokens <- min m . (+ rex) <$> getRemainingCurseTokens
+      remaining <- getRemainingCurseTokens
+      let maxTokens = min m (remaining + rex)
+      let payable k = k <= remaining || (k >= 2 && k - remaining <= rex)
 
       push
         $ Ask player
@@ -852,6 +862,7 @@ payCost msg c iid skipAdditionalCosts cost = do
         $ DropDown
           [ (tshow x, pay (AddCurseTokenCost x))
           | x <- [n .. maxTokens]
+          , payable x
           ]
       pure c
     AddCurseTokensEqualToShroudCost -> do
@@ -1152,20 +1163,22 @@ payCost msg c iid skipAdditionalCosts cost = do
       push $ InvestigatorPlaceCluesOnLocation iid source x
       withPayment $ CluePayment iid x
     GroupClueCostRange (sVal, eVal) locationMatcher -> do
-      mVal <- min eVal . getSum <$> selectAgg Sum InvestigatorClues (InvestigatorAt locationMatcher)
+      let lm = replaceYouMatcher iid locationMatcher
+      mVal <- min eVal . getSum <$> selectAgg Sum InvestigatorClues (InvestigatorAt lm)
       if mVal == sVal
-        then push $ pay (GroupClueCost (Static sVal) locationMatcher)
+        then push $ pay (GroupClueCost (Static sVal) lm)
         else
           push
             $ questionLabel ("Spend " <> tshow sVal <> "-" <> tshow mVal <> " clues, as a group") player
             $ DropDown
-              [ (tshow n, pay (GroupClueCost (Static n) locationMatcher))
+              [ (tshow n, pay (GroupClueCost (Static n) lm))
               | n <- [sVal .. mVal]
               ]
       pure c
     GroupClueCost x locationMatcher -> do
       totalClues <- getPlayerCountValue x
-      iids <- select $ InvestigatorAt locationMatcher <> InvestigatorWithAnyClues
+      let lm = replaceYouMatcher iid locationMatcher
+      iids <- select $ InvestigatorAt lm <> InvestigatorWithAnyClues
       iidsWithClues <- forMaybeM iids \iid' -> do
         clues <- getSpendableClueCount [iid']
         if clues > 0
@@ -1197,8 +1210,9 @@ payCost msg c iid skipAdditionalCosts cost = do
     -- withPayment $ CluePayment totalClues
     SameLocationGroupClueCost x locationMatcher -> do
       totalClues <- getPlayerCountValue x
+      let lm = replaceYouMatcher iid locationMatcher
       locations <-
-        select locationMatcher >>= filterM \lid -> do
+        select lm >>= filterM \lid -> do
           total <- getSpendableClueCount =<< select (investigatorAt lid)
           pure $ total >= totalClues
       lead <- getLeadPlayer
@@ -1211,7 +1225,8 @@ payCost msg c iid skipAdditionalCosts cost = do
     -- withPayment $ CluePayment totalClues
     GroupResourceCost x locationMatcher -> do
       totalResources <- getPlayerCountValue x
-      iids <- select $ InvestigatorAt locationMatcher <> InvestigatorWithAnyResources
+      let lm = replaceYouMatcher iid locationMatcher
+      iids <- select $ InvestigatorAt lm <> InvestigatorWithAnyResources
       iidsWithResources <- forMaybeM iids \iid' -> do
         resources <- getSpendableResources iid'
         if resources > 0
@@ -1241,7 +1256,8 @@ payCost msg c iid skipAdditionalCosts cost = do
       pure c
     GroupDiscardCost x extendedCardMatcher locationMatcher -> do
       totalCards <- getPlayerCountValue x
-      iids <- select $ InvestigatorAt locationMatcher <> HandWith (HasCard DiscardableCard)
+      let lm = replaceYouMatcher iid locationMatcher
+      iids <- select $ InvestigatorAt lm <> HandWith (HasCard DiscardableCard)
       iidsWithCards <- forMaybeM iids \iid' -> do
         cards <- select $ inHandOf NotForPlay iid' <> basic DiscardableCard <> extendedCardMatcher
         if not (null cards)

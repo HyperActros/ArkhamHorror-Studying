@@ -774,9 +774,10 @@ instance RunMessage EdgeOfTheEarth where
                     iids <- getInvestigators
                     chooseOneM lead $ for_ iids \iid -> do
                       questionLabeled
-                        "Any one investigator may begin _Scenario III: City of the Elder Things_ with two additional cards drawn in their opening hand."
-                      portraitLabeled iid do
-                        scenarioSetupModifier "08621" CampaignSource iid (StartingHand 2)
+                        "Any one investigator may begin _Scenario IV: The Heart of Madness_ with two additional cards drawn in their opening hand."
+                      portraitLabeled iid
+                        $ push
+                        $ SetGlobal CampaignTarget "heartOfMadnessExtraCards" (toJSON [iid])
                     doStep (n - 1) msg'
                 | not owned -> do
                     iids <- getInvestigators
@@ -1043,52 +1044,47 @@ instance RunMessage EdgeOfTheEarth where
       pure $ EdgeOfTheEarth $ attrs & logL . partnersL . ix cCode . statusL .~ status
     When (AssetDefeated _ aid) -> do
       cCode <- field AssetCardCode aid
-      pushWhen (cCode `elem` map (.cardCode) expeditionTeam) $ SetPartnerStatus cCode Eliminated
+      for_ (toPartnerCodeMay cCode) \partnerCode ->
+        push $ SetPartnerStatus partnerCode Eliminated
       pure c
     RemoveFromPlay (AssetSource aid) -> do
       mCode <- fieldMay AssetCardCode aid
-      case mCode of
+      case mCode >>= toPartnerCodeMay of
         Nothing -> pure c
-        Just cCode ->
-          if cCode `elem` map (.cardCode) expeditionTeam
-            then do
-              damage <- field AssetDamage aid
-              horror <- field AssetHorror aid
-              pure
-                $ EdgeOfTheEarth
-                $ attrs
-                & (logL . partnersL . ix cCode %~ ((damageL .~ damage) . (horrorL .~ horror)))
-            else pure c
+        Just partnerCode -> do
+          damage <- field AssetDamage aid
+          horror <- field AssetHorror aid
+          pure
+            $ EdgeOfTheEarth
+            $ attrs
+            & (logL . partnersL . ix partnerCode %~ ((damageL .~ damage) . (horrorL .~ horror)))
     RemoveFromGame (AssetTarget aid) -> do
       mCode <- fieldMay AssetCardCode aid
-      case mCode of
+      case mCode >>= toPartnerCodeMay of
         Nothing -> pure c
-        Just cCode ->
-          if cCode `elem` map (.cardCode) expeditionTeam
-            then do
-              damage <- field AssetDamage aid
-              horror <- field AssetHorror aid
-              pure
-                $ EdgeOfTheEarth
-                $ attrs
-                & (logL . partnersL . ix cCode %~ ((damageL .~ damage) . (horrorL .~ horror)))
-            else pure c
+        Just partnerCode -> do
+          damage <- field AssetDamage aid
+          horror <- field AssetHorror aid
+          pure
+            $ EdgeOfTheEarth
+            $ attrs
+            & (logL . partnersL . ix partnerCode %~ ((damageL .~ damage) . (horrorL .~ horror)))
     HealDamage (CardCodeTarget cCode) CampaignSource n -> do
-      if cCode `elem` map (.cardCode) expeditionTeam
-        then do
+      case toPartnerCodeMay cCode of
+        Just partnerCode ->
           pure
             $ EdgeOfTheEarth
             $ attrs
-            & (logL . partnersL . ix cCode %~ (damageL %~ max 0 . subtract n))
-        else pure c
+            & (logL . partnersL . ix partnerCode %~ (damageL %~ max 0 . subtract n))
+        Nothing -> pure c
     HealHorror (CardCodeTarget cCode) CampaignSource n -> do
-      if cCode `elem` map (.cardCode) expeditionTeam
-        then do
+      case toPartnerCodeMay cCode of
+        Just partnerCode ->
           pure
             $ EdgeOfTheEarth
             $ attrs
-            & (logL . partnersL . ix cCode %~ (horrorL %~ max 0 . subtract n))
-        else pure c
+            & (logL . partnersL . ix partnerCode %~ (horrorL %~ max 0 . subtract n))
+        Nothing -> pure c
     CampaignStep TheHeartOfMadnessPart1 -> scope "theHeartOfMadness.part1" do
       story $ i18nWithTitle "intro"
       kenslerIsAlive <- getPartnerIsAlive Assets.drAmyKenslerProfessorOfBiology
@@ -1127,19 +1123,31 @@ instance RunMessage EdgeOfTheEarth where
       unless miasmicCrystalRecovered do
         when (count (== #frost) (campaignChaosBag attrs) < 8) $ addChaosToken #frost
 
+      let extraCardsIids :: [InvestigatorId] =
+            toResult
+              $ Map.findWithDefault
+                (toJSON ([] :: [InvestigatorId]))
+                "heartOfMadnessExtraCards"
+                (campaignStore attrs)
+
       storyWithChooseOneM (i18nWithTitle "proceed") do
         labeled
           "Stay here and study the great door to learn more. You will play both parts of the scenario. Proceed to _The Heart of Madness, Part 1._"
-          $ pushAll
-            [ ResetInvestigators
-            , ResetGame
-            , ForTarget GameTarget ResetGame
-            , ForInvestigators [] ResetGame
-            , StartScenario "08648a" Nothing
-            ]
+          do
+            for_ extraCardsIids \iid ->
+              scenarioSetupModifier "08648a" CampaignSource iid (StartingHand 2)
+            pushAll
+              [ ResetInvestigators
+              , ResetGame
+              , ForTarget GameTarget ResetGame
+              , ForInvestigators [] ResetGame
+              , StartScenario "08648a" Nothing
+              ]
         labeled
           "There is no time to waste. Pass through the gate! You will skip the first part of the scenario. Skip directly to _The Heart of Madness, Part 2_."
           do
+            for_ extraCardsIids \iid ->
+              scenarioSetupModifier "08648b" CampaignSource iid (StartingHand 2)
             push $ NextCampaignStep $ continue TheHeartOfMadnessPart2
 
       pure c

@@ -609,7 +609,7 @@ const filteredCards = computed<{ choice: CardLabel; index: number }[]>(() => {
                     />
                   </div>
                 </template>
-                <button :disabled="unmetAmountRequirements">Submit</button>
+                <button :disabled="unmetAmountRequirements">{{ t('submit') }}</button>
               </form>
             </div>
           </div>
@@ -637,7 +637,7 @@ const filteredCards = computed<{ choice: CardLabel; index: number }[]>(() => {
                     <label :for="`choice-${paymentChoice.choiceId}`" v-html="paymentChoiceLabel(paymentChoice.label)"></label> <input type="number" :min="paymentChoice.minBound" :max="paymentChoice.maxBound" v-model.number="amountSelections[paymentChoice.choiceId]" :name="`choice-${paymentChoice.choiceId}`" onclick="this.select()" />
                   </div>
                 </template>
-                <button :disabled="unmetAmountRequirements">Submit</button>
+                <button :disabled="unmetAmountRequirements">{{ t('submit') }}</button>
               </form>
             </div>
           </div>

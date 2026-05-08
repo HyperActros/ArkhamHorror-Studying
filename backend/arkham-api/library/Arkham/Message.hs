@@ -609,6 +609,7 @@ data Message
   | BeginTurn InvestigatorId
   | Blanked Message
   | HandleOption CampaignOption
+  | RemoveOption CampaignOption
   | CampaignStep CampaignStep
   | ScenarioCampaignStep CampaignStep
   | CancelEachNext (Maybe CardId) Source [MessageType]
@@ -790,7 +791,7 @@ data Message
       CardMatcher
       IncludeDiscard
       ScenarioEncounterDeckKey
-  | FindEncounterCard InvestigatorId Target [ScenarioZone] CardMatcher
+  | FindEncounterCard InvestigatorId Target [ScenarioZone] CardMatcher FindEncounterCardStrategy
   | FinishedWithMulligan InvestigatorId
   | FocusCards [Card]
   | FocusChaosTokens [ChaosToken]
@@ -1241,6 +1242,7 @@ data Message
   | PlaceGrid GridLocation
   | LoadTarotDeck
   | PerformTarotReading
+  | SetPerformTarotReadings Bool
   | PerformReading TarotReading
   | DrawAndChooseTarot InvestigatorId TarotCardFacing Int
   | PlaceTarot InvestigatorId TarotCard
@@ -1576,6 +1578,11 @@ mconcat
               pure $ case ea of
                 Left target -> ShuffleBackIntoEncounterDeck GameSource target
                 Right (source, target) -> ShuffleBackIntoEncounterDeck source target
+            "FindEncounterCard" -> do
+              contents <- (Right <$> o .: "contents") <|> (Left <$> o .: "contents")
+              pure $ case contents of
+                Right (a, b, c, d, s) -> FindEncounterCard a b c d s
+                Left (a, b, c, d) -> FindEncounterCard a b c d LeadChooses
             _ -> defaultParseMessage (Object o)
       |]
   ]

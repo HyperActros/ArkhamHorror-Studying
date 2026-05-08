@@ -6,6 +6,7 @@ import Arkham.Action qualified as Action
 import Arkham.Actions
 import Arkham.Asset.Cards qualified as Assets
 import Arkham.Asset.Types (Field (..))
+import Arkham.Campaign.Types (Field (..))
 import Arkham.Classes.HasGame
 import Arkham.Classes.Query
 import Arkham.Customization
@@ -68,6 +69,7 @@ preventedByInvestigatorModifiers
   :: (Tracing m, HasGame m) => InvestigatorId -> Ability -> m Bool
 preventedByInvestigatorModifiers iid ability = withSpan_ "preventedByInvestigatorModifiers" do
   modifiers <- getModifiers (InvestigatorTarget iid)
+<<<<<<< HEAD
   -- logic here is a bit awkward, but in the case of forced abilities we still
   -- want `CannotTriggerAbilityMatching` to apply, BUT to retain the existing
   -- logic (not 100% sure why we exclude forced here) we need to check
@@ -85,6 +87,27 @@ preventedByInvestigatorModifiers iid ability = withSpan_ "preventedByInvestigato
     | suppressedByMatcher -> pure True
     | isForced -> pure False
     | otherwise -> anyM (prevents modifiers) modifiers
+=======
+  -- Forced abilities trigger automatically and are not "triggered" by the
+  -- investigator, so `CannotTriggerAbilityMatching` does not suppress them.
+  -- This also avoids self-locks like Narcolepsy, whose constant modifier
+  -- would otherwise block its own forced discard ability.
+  isForced <- isForcedAbility iid ability
+  if isForced
+    then pure False
+    else do
+      let cannotTriggerMatchers =
+            modifiers & mapMaybe \case
+              CannotTriggerAbilityMatching m -> Just m
+              _ -> Nothing
+      suppressedByMatcher <-
+        if null cannotTriggerMatchers
+          then pure False
+          else elem ability <$> select (Matcher.AbilityOneOf cannotTriggerMatchers)
+      if suppressedByMatcher
+        then pure True
+        else anyM (prevents modifiers) modifiers
+>>>>>>> upstream/main
  where
   prevents modifiers = \case
     CannotPerformAction x -> preventsAbility x
@@ -387,6 +410,20 @@ getCanAffordUse
   :: (HasCallStack, HasGame m, Tracing m) => InvestigatorId -> Ability -> [Window] -> m Bool
 getCanAffordUse = getCanAffordUseWith id CanIgnoreAbilityLimit
 
+-- For PerCampaign limits, the ability source can change between scenarios
+-- (e.g. a location is recreated with a fresh UUID). The campaign entity
+-- persists across ResetGame, so we record/query PerCampaign usage there.
+-- During a standalone scenario there is no campaign, so fall back to the
+-- investigators' lists (single-scenario, source UUIDs are stable).
+getPerCampaignUsedAbilities :: (HasGame m, Tracing m) => m [UsedAbility]
+getPerCampaignUsedAbilities =
+  selectOne Matcher.TheCampaign >>= \case
+    Just cId -> field CampaignUsedAbilities cId
+    Nothing ->
+      filterDepthSpecificAbilities
+        =<< concatMapM (field InvestigatorUsedAbilities)
+        =<< allInvestigators
+
 -- Use `f` to modify use count, used for `getWindowSkippable` to exclude the current call
 -- EMAIL: Cards can't react to themselves, i.e. Grotesque Statue (4)
 getCanAffordUseWith
@@ -455,12 +492,34 @@ getCanAffordUseWith f canIgnoreAbilityLimit iid ability ws = do
             True
             (and . sequence [if ability.fast then const True else not . usedThisWindow, (< n) . usedTimes])
           $ find ((== ability) . usedAbility) usedAbilities
+      PlayerLimit PerWindow n -> do
+        -- Count uses scoped to the *current* windows (`ws`) by intersecting
+        -- against each `usedAbilityWindows` entry. This prevents a use in an
+        -- outer window from blocking the ability inside a freshly opened
+        -- nested window (e.g. Ritual Candles re-firing after Uncanny
+        -- Specimen's draw-another opens a new RevealChaosToken window).
+        let matching = filter ((== ability) . usedAbility) usedAbilities
+        let countInWs u = length (filter (`elem` ws) (usedAbilityWindows u))
+        pure $ sum (map countInWs matching) < n
       PlayerLimit _ n -> do
         pure
           $ maybe
             True
             (and . sequence [if ability.fast then const True else not . usedThisWindow, (< n) . usedTimes])
           $ find ((== ability) . usedAbility) usedAbilities
+      MaxPer cardDef PerCampaign n -> do
+        let
+          abilityCardDef = \case
+            MaxPer cDef _ _ -> Just cDef
+            _ -> Nothing
+        usedAbilities' <- getPerCampaignUsedAbilities
+        pure
+          . (< n)
+          . getSum
+          . foldMap (Sum . usedTimes)
+          $ filter
+            ((Just cardDef ==) . abilityCardDef . abilityLimit . usedAbility)
+            usedAbilities'
       MaxPer cardDef _ n -> do
         let
           abilityCardDef = \case
@@ -507,6 +566,22 @@ getCanAffordUseWith f canIgnoreAbilityLimit iid ability ws = do
                 _ -> pure False
           )
           ws
+      GroupLimit PerCampaign n -> do
+        usedAbilities' <- getPerCampaignUsedAbilities
+        let
+          sameAbility u =
+            abilityCardCode (usedAbility u) == abilityCardCode ability
+              && abilityIndex (usedAbility u) == abilityIndex ability
+        let total = sum $ map usedTimes $ filter sameAbility usedAbilities'
+        pure $ total < n
+      GroupLimit PerWindow n -> do
+        usedAbilities' <-
+          filterDepthSpecificAbilities
+            =<< concatMapM (field InvestigatorUsedAbilities)
+            =<< allInvestigators
+        let matching = filter ((== ability) . usedAbility) usedAbilities'
+        let countInWs u = length (filter (`elem` ws) (usedAbilityWindows u))
+        pure $ sum (map countInWs matching) < n
       GroupLimit _ n -> do
         usedAbilities' <-
           filterDepthSpecificAbilities

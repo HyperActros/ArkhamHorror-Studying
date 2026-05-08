@@ -87,7 +87,11 @@ import Arkham.Location.Grid
 import Arkham.Location.Types (Field (..), Location)
 import Arkham.Matcher hiding (PerformAction)
 import Arkham.Message hiding (story)
+<<<<<<< HEAD
 import Arkham.Message as X (AndThen (..), getChoiceAmount, preOriginalOption)
+=======
+import Arkham.Message as X (AndThen (..), getChoiceAmount, optionWhenExists, preOriginalOption)
+>>>>>>> upstream/main
 import Arkham.Message.Lifted.Queue as X
 import Arkham.Modifier
 import Arkham.Name
@@ -526,6 +530,34 @@ findEncounterCardIn iid target cardMatcher scenarioZones =
       (toTarget target)
       scenarioZones
       (toCardMatcher cardMatcher)
+      LeadChooses
+
+findRandomEncounterCard
+  :: forall cardMatcher target m
+   . (ReverseQueue m, Targetable target, IsCardMatcher cardMatcher)
+  => InvestigatorId
+  -> target
+  -> cardMatcher
+  -> m ()
+findRandomEncounterCard iid target cardMatcher =
+  findRandomEncounterCardIn iid target cardMatcher [FromEncounterDeck, FromEncounterDiscard]
+
+findRandomEncounterCardIn
+  :: forall cardMatcher target m
+   . (ReverseQueue m, Targetable target, IsCardMatcher cardMatcher)
+  => InvestigatorId
+  -> target
+  -> cardMatcher
+  -> [ScenarioZone]
+  -> m ()
+findRandomEncounterCardIn iid target cardMatcher scenarioZones =
+  push
+    $ Msg.FindEncounterCard
+      iid
+      (toTarget target)
+      scenarioZones
+      (toCardMatcher cardMatcher)
+      RandomSelect
 
 beginSkillTest
   :: (ReverseQueue m, Sourceable source, Targetable target)
@@ -1185,7 +1217,11 @@ questionLabel lbl iid q = do
   push $ Ask pid (QuestionLabel lbl Nothing q)
 
 questionLabel' :: ReverseQueue m => Text -> InvestigatorId -> Question Message -> m ()
+<<<<<<< HEAD
 questionLabel' lbl = questionLabel ("$" <> lbl)
+=======
+questionLabel' lbl = Arkham.Message.Lifted.questionLabel ("$" <> lbl)
+>>>>>>> upstream/main
 
 questionLabelWithCard
   :: ReverseQueue m => Text -> CardCode -> InvestigatorId -> Question Message -> m ()

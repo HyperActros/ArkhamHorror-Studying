@@ -10,11 +10,15 @@ import theCircleUndone from '@/locales/zh/theCircleUndone'
 import theDreamEaters from '@/locales/zh/theDreamEaters'
 import theInnsmouthConspiracy from '@/locales/zh/theInnsmouthConspiracy'
 import edgeOfTheEarth from '@/locales/zh/edgeOfTheEarth'
+<<<<<<< HEAD
 import theScarletKeys from '@/locales/zh/theScarletKeys'
+=======
+>>>>>>> upstream/main
 import brethrenOfAsh from '@/locales/zh/brethrenOfAsh'
 import standalone from '@/locales/zh/standalone'
 import gameBoard from '@/locales/zh/gameBoard/gameBoard'
 
+<<<<<<< HEAD
 const autoCardsDict: Record<string, string> = {};
 Object.values(cardsZh).forEach((card: any) => {
   if (card.real_name && card.name) {
@@ -23,3 +27,6 @@ Object.values(cardsZh).forEach((card: any) => {
 });
 
 export default {...base, label, ...campaignLog, ...investigators, ...gameBoard, ...autoCardsDict, nightOfTheZealot, theDunwichLegacy, thePathToCarcosa, theForgottenAge, theCircleUndone, theDreamEaters, theInnsmouthConspiracy, edgeOfTheEarth, theScarletKeys, brethrenOfAsh, standalone}
+=======
+export default {...base, label, ...campaignLog, ...investigators, ...gameBoard, nightOfTheZealot, theDunwichLegacy, thePathToCarcosa, theForgottenAge, theCircleUndone, theDreamEaters, theInnsmouthConspiracy, edgeOfTheEarth, brethrenOfAsh, standalone}
+>>>>>>> upstream/main

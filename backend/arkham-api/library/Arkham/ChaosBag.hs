@@ -26,7 +26,7 @@ import Arkham.Source
 import Arkham.Target
 import Arkham.Timing qualified as Timing
 import Arkham.Tracing
-import Arkham.Window (Window (..), mkAfter, mkWhen)
+import Arkham.Window (Window (..), mkAfter, mkCancel, mkWhen)
 import Arkham.Window qualified as Window
 import Control.Monad.State.Strict (StateT, execStateT, gets, modify', put, runStateT)
 import Data.Map.Strict qualified as Map
@@ -847,6 +847,13 @@ instance RunMessage ChaosBag where
 
           checkWindowMsgs <- case miid of
             Just iid -> do
+<<<<<<< HEAD
+=======
+              cancelMsgs <-
+                traverse
+                  (\token -> checkWindows [mkCancel (Window.RevealChaosToken iid token)])
+                  [token | token <- tokens', not token.cancelled]
+>>>>>>> upstream/main
               whenMsgs <-
                 traverse
                   (\token -> checkWindows [mkWhen (Window.RevealChaosToken iid token)])
@@ -858,7 +865,11 @@ instance RunMessage ChaosBag where
                     traverse
                       (\token -> checkWindows [mkAfter (Window.RevealChaosToken iid token)])
                       [token | token <- tokens', not token.cancelled]
+<<<<<<< HEAD
               pure $ whenMsgs <> afterMsgs
+=======
+              pure $ cancelMsgs <> whenMsgs <> afterMsgs
+>>>>>>> upstream/main
             Nothing -> pure []
           for_ miid \iid -> do
             investigator <- getAttrs @Investigator iid

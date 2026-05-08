@@ -15,7 +15,11 @@ servantOfFlameOnTheRun = enemy ServantOfFlameOnTheRun Cards.servantOfFlameOnTheR
 
 instance HasAbilities ServantOfFlameOnTheRun where
   getAbilities (ServantOfFlameOnTheRun a) =
+<<<<<<< HEAD
     extend1 a $ mkAbility a 1 $ forced $ EnemyDefeated #after You ByAny (be a)
+=======
+    extend1 a $ mkAbility a 1 $ forced $ EnemyDefeated #when You ByAny (be a)
+>>>>>>> upstream/main
 
 instance RunMessage ServantOfFlameOnTheRun where
   runMessage msg e@(ServantOfFlameOnTheRun attrs) = runQueueT $ case msg of

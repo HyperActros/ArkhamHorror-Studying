@@ -363,6 +363,7 @@ withModifiers :: (HasGame m, Tracing m, Targetable a) => a -> m (With a Modifier
 withModifiers a = With a . ModifierData <$> (traverse (overModifierTypeM calculateModifier) =<< getModifiers' a)
  where
   calculateModifier (CalculatedSkillModifier s c) = SkillModifier s <$> calculate c
+  calculateModifier (DamageDealtCalculation c) = DamageDealt <$> calculate c
   calculateModifier other = pure other
 
 withTreacheryMetadata :: (HasGame m, Tracing m) => Treachery -> m (With Treachery TreacheryMetadata)
@@ -3749,8 +3750,8 @@ enemyMatcherFilter es matcher' = do
       case meta of
         Object obj -> case parseMaybe @_ @[EnemyId] (.: "enemiesThatAttackedYouSinceTheEndOfYourLastTurn") obj of
           Just eids -> pure $ filter ((`elem` eids) . toId) es
-          Nothing -> error "AttackedYouSinceTheEndOfYourLastTurn: key missing"
-        _ -> error "AttackedYouSinceTheEndOfYourLastTurn: InvestigatorMeta is not an Object"
+          Nothing -> pure mempty
+        _ -> pure mempty
     EnemyCanAttack investigatorMatcher -> do
       iids <- select investigatorMatcher
       flip filterM es \enemy -> do
@@ -5568,6 +5569,7 @@ instance Projection Campaign where
       CampaignMeta -> pure campaignMeta
       CampaignStore -> pure campaignStore
       CampaignDestiny -> pure campaignDestiny
+      CampaignUsedAbilities -> pure campaignUsedAbilities
       CampaignInvalidCards -> case c of
         Campaign k -> pure $ invalidCards k
 
@@ -6153,6 +6155,14 @@ runMessages gameId mLogger = do
                   -- because some modifiers depend on the enemy moving we need to preload them here
                   overGameM preloadModifiers
                 MoveUntil _ (EnemyTarget eid) -> do
+                  overGame $ enemyMovingL ?~ eid
+                  -- because some modifiers depend on the enemy moving we need to preload them here
+                  overGameM preloadModifiers
+                MoveToward (EnemyTarget eid) _ -> do
+                  overGame $ enemyMovingL ?~ eid
+                  -- because some modifiers depend on the enemy moving we need to preload them here
+                  overGameM preloadModifiers
+                Move m | EnemyTarget eid <- m.target -> do
                   overGame $ enemyMovingL ?~ eid
                   -- because some modifiers depend on the enemy moving we need to preload them here
                   overGameM preloadModifiers

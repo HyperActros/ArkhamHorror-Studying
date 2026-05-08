@@ -39,7 +39,11 @@ instance RunMessage Fire1 where
         chooseOneAtATimeM iid do
           targets assets \aid -> dealAssetDamage aid (attrs.ability 1) 1
           targets enemies $ nonAttackEnemyDamage Nothing (attrs.ability 1) 1
+<<<<<<< HEAD
           targets investigators \iid' -> assignDamage iid' (attrs.ability 1) 1
+=======
+          targets investigators \iid' -> directDamage iid' (attrs.ability 1) 1
+>>>>>>> upstream/main
       pure t
     UseThisAbility iid (isSource attrs -> True) 2 -> do
       sid <- getRandom

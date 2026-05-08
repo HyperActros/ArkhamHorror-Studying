@@ -20,7 +20,11 @@ servantOfFlameAWillingSacrifice =
 
 instance HasAbilities ServantOfFlameAWillingSacrifice where
   getAbilities (ServantOfFlameAWillingSacrifice a) =
+<<<<<<< HEAD
     extend1 a $ mkAbility a 1 $ forced $ EnemyDefeated #after You ByAny (be a)
+=======
+    extend1 a $ mkAbility a 1 $ forced $ EnemyDefeated #when You ByAny (be a)
+>>>>>>> upstream/main
 
 instance RunMessage ServantOfFlameAWillingSacrifice where
   runMessage msg e@(ServantOfFlameAWillingSacrifice attrs) = runQueueT $ case msg of

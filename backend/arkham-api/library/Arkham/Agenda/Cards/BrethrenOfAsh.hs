@@ -23,7 +23,11 @@ instance HasAbilities BrethrenOfAsh where
         , mkAbility a 3
             $ Objective
             $ forced
+<<<<<<< HEAD
             $ EnemyDefeated #after Anyone ByAny
+=======
+            $ IfEnemyDefeated #after Anyone ByAny
+>>>>>>> upstream/main
             $ enemyIs Enemies.elokossMotherOfFlame
         ]
     | otherwise = []

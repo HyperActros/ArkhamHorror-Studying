@@ -84,3 +84,9 @@ secrets.*
 kubeconfig*
 
 .pi/
+<<<<<<< HEAD
+=======
+.claude/
+CLAUDE.md
+.mcp.json
+>>>>>>> upstream/main
