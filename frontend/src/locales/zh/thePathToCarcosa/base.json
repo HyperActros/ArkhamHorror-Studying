@@ -56,7 +56,7 @@
   "label": {
     "gainAdditionalXp": "選擇 {名字} 獲得1點額外經驗",
     "youngPsychopath": {
-      "fight": "Young Psycopath gets +3 fight until the end of the investigation phase"
+      "fight": "哈斯塔的傀儡在调查阶段结束前获得+3攻击"
     },
     "conviction": "確信",
     "doubt": "疑惑"
