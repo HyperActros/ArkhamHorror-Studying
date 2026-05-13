@@ -76,7 +76,7 @@ import Arkham.Investigator (
   returnToBody,
  )
 import Arkham.Investigator.Cards qualified as Investigators
-import Arkham.Investigator.Types (InvestigatorAttrs (..))
+import Arkham.Investigator.Types (Investigator, InvestigatorAttrs (..))
 import Arkham.Investigator.Types qualified as Investigator
 import Arkham.Keyword qualified as Keyword
 import Arkham.Location
@@ -402,6 +402,7 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
       & (inActionL .~ True)
       & (actionCanBeUndoneL .~ True)
       & (actionDiffL .~ [])
+      & (undoActionStepL ?~ gameScenarioSteps g)
   FinishAction -> do
     iid <- getActiveInvestigatorId
     let
@@ -526,11 +527,11 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
     when (gamePerformTarotReadings g) do
       lead <- getLeadPlayer
       push
-        $ questionLabel "Choose Tarot Reading Type" lead
+        $ questionLabel "$label.chooseTarotReadingType" lead
         $ ChooseOne
-          [ Label "Chaos" [PerformReading Tarot.Chaos]
-          , Label "Balance" [PerformReading Tarot.Balance]
-          , Label "Choice" [PerformReading Tarot.Choice]
+          [ Label "$label.tarotChaos" [PerformReading Tarot.Chaos]
+          , Label "$label.tarotBalance" [PerformReading Tarot.Balance]
+          , Label "$label.tarotChoice" [PerformReading Tarot.Choice]
           ]
     pure g
   SetPerformTarotReadings b -> pure $ g & performTarotReadingsL .~ b
@@ -564,7 +565,7 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
           $ [ targetLabel target [whenWindow, TargetResolveChaosToken target token tokenFace iid]
             | target <- resolutionChoices
             ]
-          <> [Label "Resolve Normally" [whenWindow, msg']]
+          <> [Label "$label.resolveNormally" [whenWindow, msg']]
     pure g
   CreateEffect builder -> do
     (effectId, effect) <- createEffect builder
@@ -1082,27 +1083,29 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
     pushAll [before, after]
     pure $ g & entitiesL . agendasL . at aid ?~ lookupAgenda aid agendaDeckNum (toCardId card)
   ReassignHorror source target n -> do
-    replaceWindowMany
-      \case
+    let
+      matchesP = \case
         Window.PlacedToken _ t Token.Horror _ -> t == sourceToTarget source
         _ -> False
-      \case
+      rewriteWT = \case
         Window.PlacedToken s t Token.Horror m
           | m > n -> [Window.PlacedToken s t Token.Horror (m - n), Window.PlacedToken s target Token.Horror n]
         Window.PlacedToken s _ Token.Horror _ -> [Window.PlacedToken s target Token.Horror n]
-        _ -> error "ReassignHorror: impossible"
-    pure g
+        other -> [other]
+    replaceWindowMany matchesP rewriteWT
+    pure $ g & entitiesL . investigatorsL %~ map (rewriteUsedAbilityWindows matchesP rewriteWT)
   ReassignDamage source target n -> do
-    replaceWindowMany
-      \case
+    let
+      matchesP = \case
         Window.PlacedToken _ t Token.Damage _ -> t == sourceToTarget source
         _ -> False
-      \case
+      rewriteWT = \case
         Window.PlacedToken s t Token.Damage m
           | m > n -> [Window.PlacedToken s t Token.Damage (m - n), Window.PlacedToken s target Token.Damage n]
         Window.PlacedToken s _ Token.Damage _ -> [Window.PlacedToken s target Token.Damage n]
-        _ -> error "ReassignDamage: impossible"
-    pure g
+        other -> [other]
+    replaceWindowMany matchesP rewriteWT
+    pure $ g & entitiesL . investigatorsL %~ map (rewriteUsedAbilityWindows matchesP rewriteWT)
   CommitCard iid card -> do
     let alreadyCommitted = any ((== card.id) . toCardId) (g ^. entitiesL . skillsL)
     if alreadyCommitted
@@ -1833,7 +1836,7 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
             lead <- getLeadPlayer
             push
               $ Ask lead
-              $ ChooseOne (Label "Automatically handle all" [HandleGroupTargets Auto k targetMap] : opts)
+              $ ChooseOne (Label "$label.automaticallyHandleAll" [HandleGroupTargets Auto k targetMap] : opts)
           Manual -> do
             let
               opts =
@@ -1960,7 +1963,7 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
           then pushAll msgs'
           else do
             askMap <-
-              fmap (QuestionLabel "Choose after skill test effect to resolve" Nothing . ChooseOneAtATime) . Map.unionsWith (<>) <$> forMaybeM (msg : options) \case
+              fmap (QuestionLabel "$label.chooseAfterSkillTestEffect" Nothing . ChooseOneAtATime) . Map.unionsWith (<>) <$> forMaybeM (msg : options) \case
                 AfterSkillTestOption iid lbl xs -> do
                   playerId <- getPlayer iid
                   pure $ Just $ singletonMap playerId [Label lbl xs]
@@ -2174,12 +2177,12 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
           , phaseStep InvestigationPhaseBeginsWindow [fastWindow]
           , phaseStep
               NextInvestigatorsTurnBeginsStep
-              [ questionLabel "Choose player to take turn" player
+              [ questionLabel "$label.choosePlayerToTakeTurn" player
                   $ ChooseOne
                     [PortraitLabel iid [ChoosePlayer iid SetTurnPlayer] | iid <- xs]
               ]
           ]
-    pure $ g & phaseL .~ InvestigationPhase
+    pure $ g & phaseL .~ InvestigationPhase & undoPhaseStepL ?~ (gameScenarioSteps g + 1)
   BeginTurn x -> do
     player <- getPlayer x
     pushM $ checkWindows [mkWhen (Window.TurnBegins x), mkAfter (Window.TurnBegins x)]
@@ -2191,6 +2194,11 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
       & (activeAbilitiesL .~ mempty)
       & (actionRemovedEntitiesL .~ mempty)
       & (entitiesL %~ clearRemovedEntities)
+      -- +1 because the batch processing this BeginTurn ends at the next Ask
+      -- (the investigator's first action choice). We want undo to land there,
+      -- not at the prior batch (which would be the choose-player question or
+      -- the end of mythos).
+      & (undoTurnStepL ?~ (gameScenarioSteps g + 1))
   SetPlayerOrder -> do
     lead <- getLead
     players <- getInvestigators
@@ -2205,7 +2213,7 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
   ChoosePlayerOrder lead investigatorIds orderedInvestigatorIds -> do
     player <- getPlayer lead
     push
-      $ questionLabel "Choose next in turn order" player
+      $ questionLabel "$label.chooseNextInTurnOrder" player
       $ ChooseOne
         [ PortraitLabel
             iid
@@ -2265,7 +2273,7 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
       & (turnPlayerInvestigatorIdL .~ Nothing)
   Begin EnemyPhase -> do
     runQueueT $ runEnemyPhase EndEnemy
-    pure $ g & phaseL .~ EnemyPhase
+    pure $ g & phaseL .~ EnemyPhase & undoPhaseStepL ?~ (gameScenarioSteps g + 1)
   EnemyAttackFromDiscard iid source card -> do
     enemyId <- getRandom
     let enemy = overAttrs (\a -> a {enemyPlacement = StillInEncounterDiscard}) (createEnemy card enemyId)
@@ -2306,7 +2314,7 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
       , phaseStep CheckHandSizeStep [AllCheckHandSize]
       , phaseStep UpkeepPhaseEndsStep [EndUpkeep, Do EndUpkeep]
       ]
-    pure $ g & phaseL .~ UpkeepPhase
+    pure $ g & phaseL .~ UpkeepPhase & undoPhaseStepL ?~ (gameScenarioSteps g + 1)
   Do EndUpkeep -> do
     pushAll
       . (: [EndPhase, After EndPhase])
@@ -2382,7 +2390,11 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
                MythosPhaseEndsStep
                [EndMythos, ChoosePlayerOrder (gameLeadInvestigatorId g) [] playerOrder]
            ]
-    pure $ g & phaseL .~ MythosPhase & phaseStepL ?~ MythosPhaseStep MythosPhaseBeginsStep
+    pure
+      $ g
+      & (phaseL .~ MythosPhase)
+      & (phaseStepL ?~ MythosPhaseStep MythosPhaseBeginsStep)
+      & (undoPhaseStepL ?~ (gameScenarioSteps g + 1))
   Msg.PhaseStep step msgs -> do
     pushAll msgs
     pure $ g & phaseStepL ?~ step
@@ -2969,7 +2981,7 @@ runGameMessage msg g = withSpan_ "runGameMessage" $ case msg of
                     [ Label
                         "Cancel card effects and discard it"
                         [UnfocusCards, CancelNext (modifierSource foresight) RevelationMessage, AddToEncounterDiscard card]
-                    , Label "Draw as normal" [UnfocusCards, whenDraw, Do msg]
+                    , Label "$label.drawAsNormal" [UnfocusCards, whenDraw, Do msg]
                     ]
                 pure $ g & focusedCardsL %~ ([toCard card] :)
               else do
@@ -3316,12 +3328,12 @@ preloadEntities g = do
       | otherwise = a
     preloadHandEntities entities investigator' = do
       asIfInHandCards <- getAsIfInHandCardsFor NotForPlay (toId investigator')
-
+      committedCards <- field Investigator.InvestigatorCommittedCards (toId investigator')
       let
         handEffectCards =
           filter (cdCardInHandEffects . toCardDef)
             $ investigatorHand (toAttrs investigator')
-            <> asIfInHandCards
+            <> filter (`notElem` committedCards) asIfInHandCards
       pure
         $ if null handEffectCards
           then entities
@@ -3502,11 +3514,33 @@ runPreGameMessage msg g = withSpan_ "runPreGameMessage" $ case msg of
       & (removedFromPlayL .~ [])
       & (playerOrderL %~ \po -> if null po then view (entitiesL . investigatorsL . to Map.keys) g else po)
   Setup -> pure $ g & inSetupL .~ True
-  StartScenario {} -> pure $ g & inSetupL .~ True & scenarioStepsL .~ 0
+  StartScenario {} ->
+    pure
+      $ g
+      & (inSetupL .~ True)
+      & (scenarioStepsL .~ 0)
+      & (undoActionStepL .~ Nothing)
+      & (undoTurnStepL .~ Nothing)
+      & (undoPhaseStepL .~ Nothing)
+      & (undoRoundStepL .~ Nothing)
   EndSetup -> pure $ g & inSetupL .~ False
+  BeginRound -> pure $ g & undoRoundStepL ?~ (gameScenarioSteps g + 1)
   _ -> pure g
 
 handleActionDiff :: Game -> Game -> Game
 handleActionDiff old new
   | gameInAction new = new & actionDiffL %~ (diff new old :)
   | otherwise = new
+
+rewriteUsedAbilityWindows
+  :: (Window.WindowType -> Bool)
+  -> (Window.WindowType -> [Window.WindowType])
+  -> Investigator
+  -> Investigator
+rewriteUsedAbilityWindows matchesP rewriteWT =
+  overAttrs (Investigator.usedAbilitiesL %~ map rewriteUsed)
+ where
+  rewriteUsed u = u {usedAbilityWindows = concatMap rewriteWindow (usedAbilityWindows u)}
+  rewriteWindow w
+    | matchesP (windowType w) = map (`Window.replaceWindowType` w) (rewriteWT (windowType w))
+    | otherwise = [w]

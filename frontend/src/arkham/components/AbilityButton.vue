@@ -51,6 +51,12 @@ const modifiers = computed(() => {
   })
 })
 
+const labelType = computed(() => {
+  const ty = ability.value?.type ?? null
+  if (ty && ty.tag === "DelayedAbility") return ty.abilityType
+  return ty
+})
+
 const isObjective = computed(() => ability.value && ability.value.type.tag === "Objective")
 const isFastActionAbility = computed(() => ability.value && ability.value.type.tag === "FastAbility")
 const isReactionAbility = computed(() => ability.value && ability.value.type.tag === "ReactionAbility")
@@ -102,15 +108,16 @@ const isAction = (action: Action) => {
   return false
 }
 
-function totalActionCost(cost: Cost) {
+function totalActionCost(cost: Cost): number {
   if (cost.tag === "Costs") {
-    return cost.contents.reduce((acc, v) => v.tag === "ActionCost" ? acc + v.contents : acc, 0)
+    const contents = (cost as { contents: Cost[] }).contents
+    return contents.reduce<number>((acc, v) => v.tag === "ActionCost" ? acc + Number((v as { contents: number }).contents) : acc, 0)
   } else if (cost.tag === "ActionCost") {
     const setActions = modifiers.value.find((m) => m[1][0].type.tag === "ActionCostSetToModifier")
     if (setActions) {
       return setActions[1][0].type.contents
     }
-    return cost.contents
+    return Number((cost as { contents: number }).contents)
   }
 
   return 0
@@ -162,36 +169,32 @@ const abilityLabel = computed(() => {
     return t('Engage')
   }
 
-  if (isForcedAbility.value === true) {
+  if (labelType.value?.tag === "ForcedAbility") {
     return t('Forced')
   }
 
-  if (isDelayedAbility.value === true) {
-    return t('Delayed')
-  }
-
-  if (isObjective.value === true) {
+  if (labelType.value?.tag === "Objective") {
     return t('Objective')
   }
 
-  if (ability.value && ability.value.type.tag === "CustomizationReaction") {
-    return ability.value.type.label
+  if (labelType.value?.tag === "CustomizationReaction") {
+    return labelType.value.label
   }
 
-  if (ability.value && ability.value.type.tag === "ConstantReaction") {
-    return ability.value.type.label
+  if (labelType.value?.tag === "ConstantReaction") {
+    return labelType.value.label
   }
 
-  if (ability.value && ability.value.type.tag === "ServitorAbility") {
-    return ability.value.type.action
+  if (labelType.value?.tag === "ServitorAbility") {
+    return labelType.value.action
   }
 
-  if (isReactionAbility.value === true) {
+  if (labelType.value?.tag === "ReactionAbility") {
     return ""
   }
 
-  if (ability.value && ability.value.type.tag === "ActionAbility") {
-    const { actions, cost } = ability.value.type
+  if (labelType.value?.tag === "ActionAbility") {
+    const { actions, cost } = labelType.value
     const total = totalActionCost(cost)
     const skillIcon = abilityString.value ? ` (${abilityString.value})` : ""
     const actionPrefix = total > 0 ? `<span>${replaceIcons("{action}".repeat(total))}</span>` : ""
@@ -209,7 +212,7 @@ const abilityLabel = computed(() => {
     return replaceIcons("{action}".repeat(totalActionCost(cost)))
   }
 
-  if (isHaunted.value === true) {
+  if (labelType.value?.tag === "Haunted") {
     return t('Haunted')
   }
 
